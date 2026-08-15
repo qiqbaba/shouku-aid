@@ -1,0 +1,15 @@
+{
+  "name": "shouku-aid",
+  "version": "1.6.0",
+  "description": "专为收库123导航网打造的高效链接可用性检测油猴脚本",
+  "main": "shouku_checker.user.js",
+  "keywords": [
+    "tampermonkey",
+    "userscript",
+    "link-checker",
+    "shouku123",
+    "dead-link-detector"
+  ],
+  "author": "",
+  "license": "MIT"
+}
