@@ -5,6 +5,10 @@
 // @description  在收库123导航网页右侧创建一个控制面板，点击后开始检测网页中所有链接的可用性，并做出对应的状态标识。
 // @author       AI写的（Antigravity）
 // @license      MIT
+// @homepageURL  https://github.com/qiqbaba/shouku-aid
+// @supportURL   https://github.com/qiqbaba/shouku-aid/issues
+// @updateURL    https://raw.githubusercontent.com/qiqbaba/shouku-aid/main/shouku_checker.user.js
+// @downloadURL  https://raw.githubusercontent.com/qiqbaba/shouku-aid/main/shouku_checker.user.js
 // @match        *://shouku123.com/*
 // @match        *://www.shouku123.com/*
 // @grant        GM_xmlhttpRequest

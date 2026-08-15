@@ -20,12 +20,19 @@
 - [Violentmonkey (暴力猴)](https://violentmonkey.github.io/)
 
 ### 安装方式
-1. **方式一（手动导入）**：
+
+1. **方式一（一键直接安装，推荐）**：
+   - 确保已安装 Tampermonkey / ScriptCat 扩展。
+   - 点击下方链接即可触发脚本管理器自动安装与更新关联：
+     - 👉 **[点击通过 GitHub Raw 一键安装](https://raw.githubusercontent.com/qiqbaba/shouku-aid/main/shouku_checker.user.js)**
+     - ⚡ **[点击通过 jsDelivr CDN 一键安装 (国内加速)](https://fastly.jsdelivr.net/gh/qiqbaba/shouku-aid@main/shouku_checker.user.js)**
+2. **方式二（手动导入）**：
    - 打开脚本管理器仪表盘，点击 **“+ / 添加新脚本”**。
    - 复制本仓库中的 [`shouku_checker.user.js`](./shouku_checker.user.js) 完整代码并粘贴覆盖。
    - 按 `Ctrl + S` 保存即可。
-2. **方式二（直接链接安装）**：
-   - 在已安装脚本管理器的浏览器中，直接打开本仓库发布文件的 Raw 链接即可触发自动安装提示。
+
+> [!TIP]
+> **自动更新支持**：脚本已内置 `@updateURL` 与 `@downloadURL`。每次仓库主分支更新版本号后，油猴后台将**自动检查并静默升级**，您也可以在油猴面板随时点击“检查脚本更新”立即获取最新版。
 
 ---
 
@@ -106,6 +113,7 @@
 
 ### v1.7 (当前版本)
 *   **✨ 新增**：
+    *   **⚡ 油猴自动更新与一键安装**：配置脚本 `@updateURL` 与 `@downloadURL` 元数据，支持油猴后台自动检测升级；README 新增 GitHub Raw 与 jsDelivr CDN 一键直装通道。
     *   **🔍 实时关键词搜索**：在控制面板中新增搜索框，支持根据输入的关键词即时过滤网页链接，自动匹配网站标题、原始 URL、检测状态及描述信息，支持一键清空与 ESC 快捷清除。
     *   **「仅看异常」快捷筛选**：一键快速勾选异常、失效、CF 限流与 GitHub 异常，直击死链清理高频场景。
     *   **「📋 复制异常」**：一键格式化导出所有异常/失效链接名称与 URL 至剪贴板，附带轻量 Toast 提示。
