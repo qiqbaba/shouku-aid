@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         收库助手
 // @namespace    AI写的（Antigravity）
-// @version      1.7
+// @version      1.9
 // @description  在收库123导航网页右侧创建一个控制面板，点击后开始检测网页中所有链接的可用性，并做出对应的状态标识。
 // @author       AI写的（Antigravity）
 // @license      MIT
@@ -468,6 +468,7 @@
             font-size: 13px;
             font-weight: 700;
             margin-left: 4px;
+            margin-right: 5px;
             flex-shrink: 0;
         }
 
@@ -764,11 +765,25 @@
 
         /* 强制单行 Flex 布局，防止浮动导致热度和按钮换行 */
         li.list-group-item {
-            display: flex !important;
-            align-items: center !important;
-            justify-content: space-between !important;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
             transition: background-color 0.4s ease, border-color 0.4s ease;
         }
+
+        /* 兼容网页原生搜索框：当内联样式为 display: none 时强制隐藏 */
+        li.list-group-item[style*="display: none"],
+        li.list-group-item[style*="display:none"],
+        li.list-group-item[hidden] {
+            display: none !important;
+        }
+
+        /* 当原生搜索显示为 block 时保持 flex 布局 */
+        li.list-group-item[style*="display: block"],
+        li.list-group-item[style*="display:block"] {
+            display: flex !important;
+        }
+
         li.list-group-item .pull-left {
             float: none !important;
             flex: 1 !important;
@@ -1017,6 +1032,9 @@
     let darkMode = localStorage.getItem('checker-panel-dark-mode') === 'true';
     let showDuplicatesOnly = localStorage.getItem('checker-panel-duplicates-only') === 'true';
     let isSettingsOpen = localStorage.getItem('checker-panel-settings-open') === 'true';
+    let exportScope = localStorage.getItem('checker-panel-export-scope') || 'current';
+    let exportFormat = localStorage.getItem('checker-panel-export-format') || 'txt';
+    let isExporting = false;
 
     // 尽早应用暗色模式，防止页面闪烁
     if (darkMode) {
@@ -1160,7 +1178,7 @@
             <div class="checker-min-badge hidden" id="checker-min-badge" title="当前未处理异常链接数">0</div>
             <div class="checker-header">
                 <div class="checker-title">
-                    <span>⚡ 收库助手</span>
+                    <span>收库助手</span>
                     <span class="checker-title-badge" id="checker-title-total" title="当前页面总链接数">共 0 条</span>
                 </div>
                 <div class="checker-toggle-min" id="checker-toggle-min" title="收起/展开">➖</div>
@@ -1302,6 +1320,38 @@
                                 <span class="checker-switch-label">热度阈值</span>
                                 <input type="number" id="checker-hot-filter-val" class="checker-input-num" min="0" value="${hotFilterVal}" style="width: 72px;" placeholder="数值">
                             </div>
+                        </div>
+
+                        <!-- 网址导出功能 -->
+                        <div class="checker-export-section" style="margin-top: 6px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.08); display: flex; flex-direction: column; gap: 6px;">
+                            <div style="display: flex; align-items: center; justify-content: space-between;">
+                                <span class="checker-switch-label">导出范围</span>
+                                <select id="checker-export-scope" class="checker-select">
+                                    <option value="current" ${exportScope === 'current' ? 'selected' : ''}>当前板块</option>
+                                    <option value="all" ${exportScope === 'all' ? 'selected' : ''}>所有板块</option>
+                                </select>
+                            </div>
+
+                            <div style="display: flex; align-items: center; justify-content: space-between;">
+                                <span class="checker-switch-label">导出格式</span>
+                                <select id="checker-export-format" class="checker-select">
+                                    <option value="txt" ${exportFormat === 'txt' ? 'selected' : ''}>TXT 文本</option>
+                                    <option value="url" ${exportFormat === 'url' ? 'selected' : ''}>纯网址 (URL)</option>
+                                    <option value="html" ${exportFormat === 'html' ? 'selected' : ''}>HTML 浏览器书签</option>
+                                    <option value="json" ${exportFormat === 'json' ? 'selected' : ''}>JSON 结构数据</option>
+                                    <option value="csv" ${exportFormat === 'csv' ? 'selected' : ''}>CSV 表格</option>
+                                </select>
+                            </div>
+
+                            <div style="display: flex; gap: 6px; margin-top: 4px;">
+                                <button class="checker-btn-sub" id="checker-btn-export-download" style="flex: 1; padding: 5px 4px; font-size: 11px; background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.35); color: #93c5fd;" title="导出并下载文件">
+                                    📥 下载文件
+                                </button>
+                                <button class="checker-btn-sub" id="checker-btn-export-copy" style="flex: 1; padding: 5px 4px; font-size: 11px;" title="复制导出内容至剪贴板">
+                                    📋 复制数据
+                                </button>
+                            </div>
+                            <div id="checker-export-status" style="font-size: 10px; color: #9ca3af; text-align: center; display: none;"></div>
                         </div>
                     </div>
                 </div>
@@ -1530,6 +1580,39 @@
             });
             hotFilterValInput.addEventListener('change', applyHotFilter);
             hotFilterValInput.addEventListener('blur', applyHotFilter);
+        }
+
+        // 导出设置与操作事件绑定
+        const exportScopeSelect = panel.querySelector('#checker-export-scope');
+        if (exportScopeSelect) {
+            exportScopeSelect.addEventListener('change', (e) => {
+                exportScope = e.target.value;
+                localStorage.setItem('checker-panel-export-scope', exportScope);
+            });
+        }
+
+        const exportFormatSelect = panel.querySelector('#checker-export-format');
+        if (exportFormatSelect) {
+            exportFormatSelect.addEventListener('change', (e) => {
+                exportFormat = e.target.value;
+                localStorage.setItem('checker-panel-export-format', exportFormat);
+            });
+        }
+
+        const exportDownloadBtn = panel.querySelector('#checker-btn-export-download');
+        if (exportDownloadBtn) {
+            exportDownloadBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                handleExport('download');
+            });
+        }
+
+        const exportCopyBtn = panel.querySelector('#checker-btn-export-copy');
+        if (exportCopyBtn) {
+            exportCopyBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                handleExport('copy');
+            });
         }
 
         // 每次打开数量变化事件
@@ -2069,6 +2152,474 @@
 
         const title = (target.a.innerText || target.a.title || '未知').trim();
         showToast(`[${lastHighlightIndex + 1}/${failedItems.length}] ${title} (${target.detail || target.status})`);
+    }
+
+    // ----------------- 板块识别与网址导出功能 -----------------
+
+    // 获取页面上的所有板块信息
+    function getBoardsList(doc = document, currentUrl = window.location.href) {
+        const nav = doc.querySelector('ol.my-app-nav, ol.my-breadcrumb');
+        const boards = [];
+        if (!nav) {
+            boards.push({
+                name: (doc.title || '当前板块').trim(),
+                url: currentUrl,
+                isCurrent: true
+            });
+            return boards;
+        }
+
+        const items = nav.querySelectorAll('li:not(.so-item)');
+        items.forEach(li => {
+            const a = li.querySelector('a');
+            const isActive = li.classList.contains('active');
+            let name = '';
+            let url = '';
+            if (a) {
+                name = a.textContent.trim();
+                const href = a.getAttribute('href') || '';
+                if (href.startsWith('http')) {
+                    url = href;
+                } else {
+                    try {
+                        url = new URL(href, currentUrl).href;
+                    } catch (e) {
+                        url = window.location.origin + href;
+                    }
+                }
+            } else {
+                name = li.textContent.trim();
+                url = currentUrl;
+            }
+            if (name) {
+                boards.push({
+                    name: name,
+                    url: url,
+                    isCurrent: isActive
+                });
+            }
+        });
+
+        if (boards.length === 0) {
+            boards.push({
+                name: (doc.title || '当前板块').trim(),
+                url: currentUrl,
+                isCurrent: true
+            });
+        }
+        return boards;
+    }
+
+    // 解析指定 DOM 中的板块数据（包括分组和链接）
+    function parseBoardDoc(doc, boardUrl, boardName) {
+        const siteTitle = (doc.querySelector('.top-div .user-settings') || doc.querySelector('title'))?.textContent?.trim() || '收库导航';
+        const groups = [];
+
+        const groupEls = doc.querySelectorAll('li.urlGroupItem');
+        if (groupEls.length > 0) {
+            groupEls.forEach(gEl => {
+                const headingEl = gEl.querySelector('.panel-heading .pull-left, .panel-heading .myfont');
+                const groupName = headingEl ? headingEl.textContent.trim() : '默认分组';
+                const items = [];
+
+                const liEls = gEl.querySelectorAll('li.list-group-item');
+                liEls.forEach(li => {
+                    const qrSpan = li.querySelector('span.glyphicon-qrcode');
+                    let url = null;
+                    if (qrSpan) {
+                        const onclickText = qrSpan.getAttribute('onclick') || '';
+                        const match = onclickText.match(/qrShow\s*\(\s*(['"])(.*?)\1\s*,\s*(['"])(.*?)\3/);
+                        if (match && match[4]) {
+                            url = match[4];
+                        }
+                    }
+
+                    const aLink = li.querySelector('a.myGotoUrl') || li.querySelector('a');
+                    if (!url && aLink) {
+                        url = aLink.getAttribute('href');
+                        if (url && !url.startsWith('http')) {
+                            try {
+                                url = new URL(url, boardUrl).href;
+                            } catch (e) {
+                                url = window.location.origin + url;
+                            }
+                        }
+                    }
+
+                    if (url && aLink) {
+                        const title = aLink.textContent.trim() || aLink.getAttribute('title') || '未命名';
+                        const hotMatch = (li.getAttribute('title') || '').match(/热度\s*[:：]\s*(\d+)/);
+                        const hotness = hotMatch ? parseInt(hotMatch[1], 10) : 0;
+                        items.push({
+                            title: title,
+                            url: url,
+                            hotness: hotness
+                        });
+                    }
+                });
+
+                if (items.length > 0) {
+                    groups.push({
+                        groupName: groupName,
+                        items: items
+                    });
+                }
+            });
+        } else {
+            const items = [];
+            doc.querySelectorAll('li.list-group-item').forEach(li => {
+                const qrSpan = li.querySelector('span.glyphicon-qrcode');
+                let url = null;
+                if (qrSpan) {
+                    const onclickText = qrSpan.getAttribute('onclick') || '';
+                    const match = onclickText.match(/qrShow\s*\(\s*(['"])(.*?)\1\s*,\s*(['"])(.*?)\3/);
+                    if (match && match[4]) {
+                        url = match[4];
+                    }
+                }
+                const aLink = li.querySelector('a.myGotoUrl') || li.querySelector('a');
+                if (!url && aLink) {
+                    url = aLink.getAttribute('href');
+                    if (url && !url.startsWith('http')) {
+                        try {
+                            url = new URL(url, boardUrl).href;
+                        } catch (e) {
+                            url = window.location.origin + url;
+                        }
+                    }
+                }
+                if (url && aLink) {
+                    const title = aLink.textContent.trim() || aLink.getAttribute('title') || '未命名';
+                    const hotMatch = (li.getAttribute('title') || '').match(/热度\s*[:：]\s*(\d+)/);
+                    const hotness = hotMatch ? parseInt(hotMatch[1], 10) : 0;
+                    items.push({
+                        title: title,
+                        url: url,
+                        hotness: hotness
+                    });
+                }
+            });
+            if (items.length > 0) {
+                groups.push({
+                    groupName: '默认分组',
+                    items: items
+                });
+            }
+        }
+
+        return {
+            siteTitle: siteTitle,
+            boardName: boardName || '当前板块',
+            boardUrl: boardUrl,
+            groups: groups
+        };
+    }
+
+    // 跨板块异步抓取 HTML
+    function fetchBoardHtml(url) {
+        return new Promise((resolve, reject) => {
+            if (typeof GM_xmlhttpRequest === 'function') {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: url,
+                    timeout: 10000,
+                    headers: {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                    },
+                    onload: function (response) {
+                        if (response.status >= 200 && response.status < 400) {
+                            resolve(response.responseText || '');
+                        } else {
+                            reject(new Error(`HTTP ${response.status}`));
+                        }
+                    },
+                    onerror: function (err) {
+                        reject(new Error('网络连接失败'));
+                    },
+                    ontimeout: function () {
+                        reject(new Error('请求超时'));
+                    }
+                });
+            } else {
+                fetch(url)
+                    .then(res => res.text())
+                    .then(resolve)
+                    .catch(reject);
+            }
+        });
+    }
+
+    // 收集导出数据
+    async function collectExportData(scope, onProgress) {
+        const boards = getBoardsList(document, window.location.href);
+        const siteTitle = (document.querySelector('.top-div .user-settings') || document.querySelector('title'))?.textContent?.trim() || '收库导航';
+        const collectedBoards = [];
+
+        if (scope === 'current') {
+            const currentBoard = boards.find(b => b.isCurrent) || boards[0] || { name: '当前板块', url: window.location.href };
+            const data = parseBoardDoc(document, window.location.href, currentBoard.name);
+            collectedBoards.push(data);
+        } else {
+            for (let i = 0; i < boards.length; i++) {
+                const b = boards[i];
+                if (onProgress) {
+                    onProgress(`正在获取: ${b.name} (${i + 1}/${boards.length})...`);
+                }
+                if (b.isCurrent) {
+                    const data = parseBoardDoc(document, window.location.href, b.name);
+                    collectedBoards.push(data);
+                } else {
+                    try {
+                        const html = await fetchBoardHtml(b.url);
+                        const doc = new DOMParser().parseFromString(html, 'text/html');
+                        const data = parseBoardDoc(doc, b.url, b.name);
+                        collectedBoards.push(data);
+                    } catch (e) {
+                        console.warn(`[收库助手] 获取板块 ${b.name} (${b.url}) 失败:`, e);
+                        collectedBoards.push({
+                            siteTitle: siteTitle,
+                            boardName: b.name,
+                            boardUrl: b.url,
+                            groups: []
+                        });
+                    }
+                }
+            }
+        }
+
+        const totalUrls = collectedBoards.reduce((acc, b) => acc + b.groups.reduce((gAcc, g) => gAcc + g.items.length, 0), 0);
+
+        return {
+            siteTitle: siteTitle,
+            exportedAt: formatTime(Date.now()),
+            totalBoards: collectedBoards.length,
+            totalUrls: totalUrls,
+            boards: collectedBoards
+        };
+    }
+
+    // HTML 特殊字符转义
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str).replace(/&/g, '&amp;')
+                          .replace(/</g, '&lt;')
+                          .replace(/>/g, '&gt;')
+                          .replace(/"/g, '&quot;');
+    }
+
+    // 格式生成器：TXT 文本格式
+    function generateTxt(exportData) {
+        const lines = [];
+        lines.push('==================================================');
+        lines.push(`【${exportData.siteTitle} - 网址导出清单】`);
+        lines.push(`导出时间: ${exportData.exportedAt}`);
+        lines.push(`板块总数: ${exportData.totalBoards} | 网址总数: ${exportData.totalUrls}`);
+        lines.push('==================================================\n');
+
+        exportData.boards.forEach((board, bIdx) => {
+            const boardUrlCount = board.groups.reduce((acc, g) => acc + g.items.length, 0);
+            lines.push(`【板块: ${board.boardName}】 (${board.boardUrl}) [共 ${boardUrlCount} 个网址]`);
+            if (board.groups.length === 0) {
+                lines.push('  (暂无网址或获取失败)\n');
+                return;
+            }
+
+            board.groups.forEach(group => {
+                lines.push(`\n■ 分组: ${group.groupName} (共 ${group.items.length} 个)`);
+                group.items.forEach((item, iIdx) => {
+                    const hotStr = item.hotness ? ` | 热度: ${item.hotness}` : '';
+                    lines.push(`  ${iIdx + 1}. ${item.title} | ${item.url}${hotStr}`);
+                });
+            });
+
+            if (bIdx < exportData.boards.length - 1) {
+                lines.push('\n--------------------------------------------------\n');
+            }
+        });
+
+        return lines.join('\n');
+    }
+
+    // 格式生成器：纯网址列表
+    function generateUrlOnly(exportData) {
+        const urls = [];
+        const seen = new Set();
+        exportData.boards.forEach(board => {
+            board.groups.forEach(group => {
+                group.items.forEach(item => {
+                    if (item.url && !seen.has(item.url)) {
+                        seen.add(item.url);
+                        urls.push(item.url);
+                    }
+                });
+            });
+        });
+        return urls.join('\n');
+    }
+
+    // 格式生成器：HTML 浏览器标准书签 (Netscape Bookmark)
+    function generateHtmlBookmarks(exportData) {
+        const ts = Math.floor(Date.now() / 1000);
+        let html = `<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<!-- This is an automatically generated file.\n     It will be read and overwritten.\n     DO NOT EDIT! -->\n<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">\n<TITLE>Bookmarks</TITLE>\n<H1>Bookmarks</H1>\n<DL><p>\n    <DT><H3 ADD_DATE="${ts}" LAST_MODIFIED="${ts}">${escapeHtml(exportData.siteTitle)}</H3>\n    <DL><p>\n`;
+
+        exportData.boards.forEach(board => {
+            html += `        <DT><H3 ADD_DATE="${ts}" LAST_MODIFIED="${ts}">${escapeHtml(board.boardName)}</H3>\n`;
+            html += `        <DL><p>\n`;
+            board.groups.forEach(group => {
+                html += `            <DT><H3 ADD_DATE="${ts}" LAST_MODIFIED="${ts}">${escapeHtml(group.groupName)}</H3>\n`;
+                html += `            <DL><p>\n`;
+                group.items.forEach(item => {
+                    html += `                <DT><A HREF="${escapeHtml(item.url)}" ADD_DATE="${ts}">${escapeHtml(item.title)}</A>\n`;
+                });
+                html += `            </DL><p>\n`;
+            });
+            html += `        </DL><p>\n`;
+        });
+
+        html += `    </DL><p>\n</DL><p>`;
+        return html;
+    }
+
+    // 格式生成器：JSON 结构数据
+    function generateJson(exportData) {
+        return JSON.stringify(exportData, null, 2);
+    }
+
+    // 格式生成器：CSV 表格 (带 UTF-8 BOM，Excel 直接打开不乱码)
+    function generateCsv(exportData) {
+        const rows = [];
+        rows.push(['板块', '分组', '网站名称', '网址', '热度']);
+        exportData.boards.forEach(board => {
+            board.groups.forEach(group => {
+                group.items.forEach(item => {
+                    rows.push([
+                        board.boardName,
+                        group.groupName,
+                        item.title,
+                        item.url,
+                        String(item.hotness || 0)
+                    ]);
+                });
+            });
+        });
+
+        const csvContent = rows.map(r => r.map(field => `"${String(field).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+        return '\uFEFF' + csvContent;
+    }
+
+    // 触发浏览器文件下载
+    function downloadFile(content, filename, mimeType) {
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 500);
+    }
+
+    // 复制数据到剪贴板
+    function copyToClipboard(text, successMsg) {
+        if (typeof GM_setClipboard === 'function') {
+            GM_setClipboard(text);
+            showToast(successMsg);
+        } else if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(() => {
+                showToast(successMsg);
+            }).catch(() => {
+                fallbackCopy(text, 0);
+                showToast(successMsg);
+            });
+        } else {
+            fallbackCopy(text, 0);
+            showToast(successMsg);
+        }
+    }
+
+    // 统一导出执行入口
+    async function handleExport(action = 'download') {
+        if (isExporting) return;
+        isExporting = true;
+
+        const exportScopeSelect = document.getElementById('checker-export-scope');
+        const exportFormatSelect = document.getElementById('checker-export-format');
+        const statusEl = document.getElementById('checker-export-status');
+        const downloadBtn = document.getElementById('checker-btn-export-download');
+        const copyBtn = document.getElementById('checker-btn-export-copy');
+
+        const scope = exportScopeSelect ? exportScopeSelect.value : 'current';
+        const format = exportFormatSelect ? exportFormatSelect.value : 'txt';
+
+        if (downloadBtn) downloadBtn.disabled = true;
+        if (copyBtn) copyBtn.disabled = true;
+        if (statusEl) {
+            statusEl.style.display = 'block';
+            statusEl.innerText = '正在准备导出数据...';
+        }
+
+        try {
+            const exportData = await collectExportData(scope, (msg) => {
+                if (statusEl) statusEl.innerText = msg;
+            });
+
+            let content = '';
+            let ext = 'txt';
+            let mime = 'text/plain;charset=utf-8';
+
+            if (format === 'txt') {
+                content = generateTxt(exportData);
+                ext = 'txt';
+                mime = 'text/plain;charset=utf-8';
+            } else if (format === 'url') {
+                content = generateUrlOnly(exportData);
+                ext = 'txt';
+                mime = 'text/plain;charset=utf-8';
+            } else if (format === 'html') {
+                content = generateHtmlBookmarks(exportData);
+                ext = 'html';
+                mime = 'text/html;charset=utf-8';
+            } else if (format === 'json') {
+                content = generateJson(exportData);
+                ext = 'json';
+                mime = 'application/json;charset=utf-8';
+            } else if (format === 'csv') {
+                content = generateCsv(exportData);
+                ext = 'csv';
+                mime = 'text/csv;charset=utf-8';
+            }
+
+            const scopeName = scope === 'all' ? '所有板块' : (exportData.boards[0]?.boardName || '当前板块');
+            const now = new Date();
+            const pad = (n) => String(n).padStart(2, '0');
+            const nowStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+            const cleanTitle = (exportData.siteTitle || '收库导航').replace(/[\\/:*?"<>|]/g, '_');
+            const filename = `${cleanTitle}_${scopeName}_${nowStr}.${ext}`;
+
+            if (action === 'download') {
+                downloadFile(content, filename, mime);
+                showToast(`已成功导出并下载 ${exportData.totalUrls} 个网址 (${exportData.totalBoards} 个板块)`);
+            } else {
+                copyToClipboard(content, `已复制 ${exportData.totalUrls} 个网址 (${exportData.totalBoards} 个板块) 至剪贴板`);
+            }
+        } catch (err) {
+            console.error('[收库助手] 导出失败:', err);
+            showToast(`导出失败: ${err.message || err}`);
+        } finally {
+            isExporting = false;
+            if (downloadBtn) downloadBtn.disabled = false;
+            if (copyBtn) copyBtn.disabled = false;
+            if (statusEl) {
+                statusEl.innerText = '导出完成';
+                setTimeout(() => {
+                    statusEl.style.display = 'none';
+                }, 2000);
+            }
+        }
     }
 
     // 保存检测结果到缓存
