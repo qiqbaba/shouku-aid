@@ -1,6 +1,6 @@
 {
   "name": "shouku-aid",
-  "version": "1.9.0",
+  "version": "2.0.0",
   "description": "专为收库123导航网打造的高效链接可用性检测油猴脚本",
   "main": "shouku_checker.user.js",
   "keywords": [

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         收库助手
 // @namespace    AI写的（Antigravity）
-// @version      1.9
-// @description  在收库123导航网页右侧创建一个控制面板，点击后开始检测网页中所有链接的可用性，并做出对应的状态标识。
+// @version      2.0
+// @description  在收库123导航网页右侧创建控制面板，支持检测指定分类或全部链接的可用性，并显示状态标识。
 // @author       AI写的（Antigravity）
 // @license      MIT
 // @homepageURL  https://github.com/qiqbaba/shouku-aid
@@ -999,6 +999,121 @@
         html.checker-dark-mode .top-div .text-center .user-settings {
             filter: invert(1) hue-rotate(180deg) !important;
         }
+
+        /* 分类范围过滤区域 */
+        .checker-scope-section {
+            margin-bottom: 6px;
+            padding-bottom: 8px;
+        }
+
+        .checker-scope-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 4px;
+            cursor: pointer;
+            padding: 2px 0;
+        }
+
+        .checker-scope-label {
+            font-size: 11px;
+            font-weight: 500;
+            color: #9ca3af;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .checker-scope-label-count {
+            font-size: 10px;
+            background: rgba(139, 92, 246, 0.2);
+            color: #a78bfa;
+            border-radius: 4px;
+            padding: 0 5px;
+            line-height: 16px;
+        }
+
+        .checker-scope-arrow {
+            font-size: 9px;
+            color: #6b7280;
+            transition: transform 0.2s;
+        }
+
+        .checker-scope-section.open .checker-scope-arrow {
+            transform: rotate(90deg);
+        }
+
+        .checker-scope-body {
+            display: none;
+            flex-direction: column;
+            gap: 4px;
+            margin-top: 2px;
+        }
+
+        .checker-scope-section.open .checker-scope-body {
+            display: flex;
+        }
+
+        .checker-scope-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .checker-scope-chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.05);
+            color: #9ca3af;
+            transition: all 0.15s;
+            user-select: none;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .checker-scope-chip:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #d1d5db;
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .checker-scope-chip.selected {
+            background: rgba(139, 92, 246, 0.25);
+            color: #c4b5fd;
+            border-color: rgba(139, 92, 246, 0.5);
+        }
+
+        .checker-scope-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .checker-scope-action-btn {
+            flex: 1;
+            padding: 3px 6px;
+            border-radius: 5px;
+            font-size: 10px;
+            font-weight: 500;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.09);
+            color: #d1d5db;
+            transition: all 0.2s;
+            text-align: center;
+        }
+
+        .checker-scope-action-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: #ffffff;
+        }
     `;
 
     // 插入 CSS 样式
@@ -1036,6 +1151,10 @@
     let exportFormat = localStorage.getItem('checker-panel-export-format') || 'txt';
     let isExporting = false;
 
+    // 分类范围过滤：null 表示检测全部，Set<string> 表示只检测指定分类
+    // 键为分类名称（groupName），与页面 li.urlGroupItem 的标题一致
+    let selectedGroupNames = null; // null = 全部
+
     // 尽早应用暗色模式，防止页面闪烁
     if (darkMode) {
         document.documentElement.classList.add('checker-dark-mode');
@@ -1043,14 +1162,43 @@
 
     let stats = { total: 0, pending: 0, checking: 0, success: 0, warning: 0, error: 0, ratelimit: 0, github: 0, duplicate: 0 };
 
-    // 提取并加载所有需要检测的链接
+    // 获取当前页面所有分类组名称（用于分类范围过滤 UI）
+    function getAllGroupNames() {
+        const names = [];
+        document.querySelectorAll('li.urlGroupItem').forEach(gEl => {
+            const headingEl = gEl.querySelector('.panel-heading .pull-left, .panel-heading .myfont');
+            const name = headingEl ? headingEl.textContent.trim() : null;
+            if (name) names.push(name);
+        });
+        return names;
+    }
+
+    // 提取并加载所有需要检测的链接（根据 selectedGroupNames 过滤范围）
     function parseLinks() {
         items = [];
         // 清理已存在的指示器与热度标签
         document.querySelectorAll('.checker-badge').forEach(el => el.remove());
         document.querySelectorAll('.checker-hot-badge').forEach(el => el.remove());
 
-        document.querySelectorAll('li.list-group-item').forEach(li => {
+        // 确定需要扫描的 li.list-group-item 范围
+        let candidateLis;
+        const groupEls = document.querySelectorAll('li.urlGroupItem');
+        if (selectedGroupNames !== null && groupEls.length > 0) {
+            // 只收集属于指定分类的 li
+            candidateLis = [];
+            groupEls.forEach(gEl => {
+                const headingEl = gEl.querySelector('.panel-heading .pull-left, .panel-heading .myfont');
+                const name = headingEl ? headingEl.textContent.trim() : null;
+                if (name && selectedGroupNames.has(name)) {
+                    gEl.querySelectorAll('li.list-group-item').forEach(li => candidateLis.push(li));
+                }
+            });
+        } else {
+            // 没有分类结构或未启用过滤，扫描全部
+            candidateLis = Array.from(document.querySelectorAll('li.list-group-item'));
+        }
+
+        candidateLis.forEach(li => {
             // 优先解析二维码 span 中的真实 URL
             const qrSpan = li.querySelector('span.glyphicon-qrcode');
             let url = null;
@@ -1186,11 +1334,6 @@
             <div class="checker-body">
                 <!-- 顶部主控区 -->
                 <div class="checker-control-section">
-                    <div class="checker-actions">
-                        <button class="checker-btn" id="checker-btn-toggle">开始检测</button>
-                        <button class="checker-btn" id="checker-btn-reset">重置</button>
-                    </div>
-
                     <div class="checker-progress-container">
                         <div class="checker-progress-label-row">
                             <span>检测进度</span>
@@ -1213,9 +1356,33 @@
                     </div>
                 </div>
 
+                <!-- 分类范围过滤（动态生成，仅当页面存在 urlGroupItem 时显示） -->
+                <div id="checker-scope-section" class="checker-scope-section" style="display:none;">
+                    <div class="checker-scope-header" id="checker-scope-header">
+                        <span class="checker-scope-label">
+                            📂 检测范围
+                            <span class="checker-scope-label-count" id="checker-scope-count">全部</span>
+                        </span>
+                        <span class="checker-scope-arrow">▶</span>
+                    </div>
+                    <div class="checker-scope-body">
+                        <div class="checker-scope-chips" id="checker-scope-chips"></div>
+                        <div class="checker-scope-actions">
+                            <button class="checker-scope-action-btn" id="checker-scope-select-all">全选</button>
+                            <button class="checker-scope-action-btn" id="checker-scope-deselect-all">取消全选</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 开始/重置按钮行 -->
+                <div class="checker-actions" style="padding-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); margin-bottom: 2px;">
+                    <button class="checker-btn" id="checker-btn-toggle">开始检测</button>
+                    <button class="checker-btn" id="checker-btn-reset">重置</button>
+                </div>
+
                 <!-- 关键词搜索框 -->
                 <div class="checker-search-container">
-                    <input type="text" class="checker-search-input" id="checker-search-input" placeholder="🔍 搜索网站名称或网址..." value="${searchKeyword}">
+                    <input type="text" class="checker-search-input" id="checker-search-input" placeholder="搜索网站名称或网址..." value="${searchKeyword}">
                     <span class="checker-search-clear${searchKeyword ? ' show' : ''}" id="checker-search-clear" title="清空搜索">✖</span>
                 </div>
 
@@ -1275,10 +1442,10 @@
                     </button>
                     <div class="checker-sub-actions">
                         <button class="checker-btn-sub" id="checker-btn-copy-failed" title="复制当前所有异常/失效链接的名称与 URL">
-                            📋 复制异常
+                            复制异常
                         </button>
                         <button class="checker-btn-sub" id="checker-btn-jump-next" title="滚动定位到下一个异常链接处">
-                            🎯 定位异常
+                            定位异常
                         </button>
                     </div>
                 </div>
@@ -1345,10 +1512,10 @@
 
                             <div style="display: flex; gap: 6px; margin-top: 4px;">
                                 <button class="checker-btn-sub" id="checker-btn-export-download" style="flex: 1; padding: 5px 4px; font-size: 11px; background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.35); color: #93c5fd;" title="导出并下载文件">
-                                    📥 下载文件
+                                    下载文件
                                 </button>
                                 <button class="checker-btn-sub" id="checker-btn-export-copy" style="flex: 1; padding: 5px 4px; font-size: 11px;" title="复制导出内容至剪贴板">
-                                    📋 复制数据
+                                    复制数据
                                 </button>
                             </div>
                             <div id="checker-export-status" style="font-size: 10px; color: #9ca3af; text-align: center; display: none;"></div>
@@ -1696,6 +1863,105 @@
             updateStatsUI();
             showToast("已重置所有检测状态");
         });
+
+        // ── 分类范围过滤初始化 ──────────────────────────────────────────────
+        const scopeSection = panel.querySelector('#checker-scope-section');
+        const scopeHeader = panel.querySelector('#checker-scope-header');
+        const scopeChipsContainer = panel.querySelector('#checker-scope-chips');
+        const scopeCountEl = panel.querySelector('#checker-scope-count');
+        const scopeSelectAllBtn = panel.querySelector('#checker-scope-select-all');
+        const scopeDeselectAllBtn = panel.querySelector('#checker-scope-deselect-all');
+
+        const allGroupNames = getAllGroupNames();
+
+        // 根据 chip 选中状态更新 selectedGroupNames，并重新解析链接
+        function applyGroupScopeChange() {
+            if (!scopeChipsContainer) return;
+            const selected = [...scopeChipsContainer.querySelectorAll('.checker-scope-chip.selected')]
+                .map(c => c.dataset.groupName);
+
+            if (selected.length === allGroupNames.length || selected.length === 0) {
+                // 全选或全不选，视为检测全部
+                selectedGroupNames = null;
+            } else {
+                selectedGroupNames = new Set(selected);
+            }
+
+            // 更新 count badge
+            if (scopeCountEl) {
+                if (selectedGroupNames === null) {
+                    scopeCountEl.textContent = '全部';
+                } else {
+                    scopeCountEl.textContent = `${selected.length}/${allGroupNames.length}`;
+                }
+            }
+
+            // 重新解析链接（重置所有状态）
+            stopDetection(false);
+            localStorage.removeItem(getCacheKey());
+            lastHighlightIndex = -1;
+            parseLinks();
+            loadCache();
+            applyFilterAll();
+            updateStatsUI();
+        }
+
+        if (scopeSection && allGroupNames.length > 0) {
+            // 显示该区块
+            scopeSection.style.display = '';
+
+            // 生成所有分类 chip
+            allGroupNames.forEach(name => {
+                const chip = document.createElement('span');
+                chip.className = 'checker-scope-chip selected'; // 默认全选
+                chip.textContent = name;
+                chip.title = name;
+                chip.dataset.groupName = name;
+                scopeChipsContainer.appendChild(chip);
+
+                chip.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (isRunning) {
+                        showToast('请先暂停检测后再更改范围');
+                        return;
+                    }
+                    const isSelected = chip.classList.contains('selected');
+                    if (isSelected) {
+                        chip.classList.remove('selected');
+                    } else {
+                        chip.classList.add('selected');
+                    }
+                    applyGroupScopeChange();
+                });
+            });
+
+            // 展开/折叠 header 点击
+            scopeHeader.addEventListener('click', (e) => {
+                e.stopPropagation();
+                scopeSection.classList.toggle('open');
+            });
+
+            // 全选按钮
+            if (scopeSelectAllBtn) {
+                scopeSelectAllBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (isRunning) { showToast('请先暂停检测后再更改范围'); return; }
+                    scopeChipsContainer.querySelectorAll('.checker-scope-chip').forEach(c => c.classList.add('selected'));
+                    applyGroupScopeChange();
+                });
+            }
+
+            // 取消全选按钮
+            if (scopeDeselectAllBtn) {
+                scopeDeselectAllBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (isRunning) { showToast('请先暂停检测后再更改范围'); return; }
+                    scopeChipsContainer.querySelectorAll('.checker-scope-chip').forEach(c => c.classList.remove('selected'));
+                    applyGroupScopeChange();
+                    showToast('已取消全选，请点击需要检测的分类');
+                });
+            }
+        }
     }
 
     // 恢复控制面板的位置，并做越界安全检查
